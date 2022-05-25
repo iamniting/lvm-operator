@@ -22,27 +22,26 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 type compMetrics struct {
 	component string
-	peakData []int64 // cpu, memory, filesystem
-	avgData []int64  // cpu, memory, filesystem
+	peakData  []int64 // cpu, memory, filesystem
+	avgData   []int64 // cpu, memory, filesystem
 }
 
 type metric struct {
@@ -51,40 +50,40 @@ type metric struct {
 }
 
 type lvmUnitMetrics struct {
-	Namespace string
-	Name string
+	Namespace    string
+	Name         string
 	WorkloadType string
-	cpu metric
-	ram metric
-	fs metric
-	start time.Time
-	end time.Time
+	cpu          metric
+	ram          metric
+	fs           metric
+	start        time.Time
+	end          time.Time
 }
 
 type topic struct {
-	topic string
+	topic         string
 	queryTemplate string
-	max float64
-	avg float64
+	max           float64
+	avg           float64
 }
 
 const (
-	cpuQueryTemplate = `sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{cluster="", namespace="{{.Namespace}}"} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{cluster="", namespace="{{.Namespace}}", workload="{{.Name}}", workload_type="{{.WorkloadType}}"}) by (pod)`
-	memQueryTemplate = `sum(container_memory_working_set_bytes{cluster="", namespace="{{.Namespace}}",container!="", image!=""} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{cluster="", namespace="{{.Namespace}}", workload="{{.Name}}", workload_type="{{.WorkloadType}}"}) by (pod)`
+	cpuQueryTemplate   = `sum(node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{cluster="", namespace="{{.Namespace}}"} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{cluster="", namespace="{{.Namespace}}", workload="{{.Name}}", workload_type="{{.WorkloadType}}"}) by (pod)`
+	memQueryTemplate   = `sum(container_memory_working_set_bytes{cluster="", namespace="{{.Namespace}}",container!="", image!=""} * on(namespace,pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{cluster="", namespace="{{.Namespace}}", workload="{{.Name}}", workload_type="{{.WorkloadType}}"}) by (pod)`
 	filesystemTemplate = `sum(pod:container_fs_usage_bytes:sum * on(pod) group_left(workload, workload_type) namespace_workload_pod:kube_pod_owner:relabel{workload="{{.Name}}", workload_type="{{.WorkloadType}}"}) by (pod)`
-	Mebibyte = 1048576 // bytes
+	Mebibyte           = 1048576 // bytes
 )
 
 var (
-	testNamespace *string
+	testNamespace        *string
 	testStorageClassName *string
-	lvmClusterFile *string
-	namePattern *string
-	numberInstances *int
-	token *string
-	PVCLabels = map[string]string{"app": "testPerformance"}
-	prometheusURL string
-	results []compMetrics
+	lvmClusterFile       *string
+	namePattern          *string
+	numberInstances      *int
+	token                *string
+	PVCLabels            = map[string]string{"app": "testPerformance"}
+	prometheusURL        string
+	results              []compMetrics
 )
 
 func main() {
@@ -98,14 +97,14 @@ func main() {
 	flag.Usage = func() {
 		flagSet := flag.CommandLine
 		fmt.Println(
-`Usage of operf:
+			`Usage of operf:
 This script provide  LVM operator metrics retrieval (for all the units in the operator) doing two different kind of tests:
 
-- LVMcluster creation: 
+- LVMcluster creation:
     This implies deployment of daemonsets in the nodes selected and the LVM Volume Groups creation.
 	Example:
        # go run operf.go -token sha256~cj81ClyUYu7g05y8K-uLWm2AbrKTbNEQ96hEJcWStQo -lvmcrd ../../lvmcluster.yaml
-		
+
 - PVCs and PVs creation and usage:
 	It is created <number> of "busy" pods using PVCs bounded to PVs which use the Storage class provided
 	Example:
@@ -121,18 +120,19 @@ Parameters:
 	}
 
 	flag.Parse()
-	var kubeconfig *string
 
 	if *token == "" {
 		fmt.Println("Please provide the token parameter to connect with the Openshift cluster. Aborting test.")
 		return
 	}
 
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	var kubeconfig *string
+	val, ok := os.LookupEnv("KUBECONFIG")
+	if !ok {
+		panic("KUBECONFIG env var not defined")
 	}
+
+	kubeconfig = &val
 
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
@@ -162,9 +162,9 @@ Parameters:
 	}
 	//Retrieve and print metrics
 	units := []lvmUnitMetrics{lvmUnitMetrics{Namespace: *testNamespace, Name: "vg-manager", WorkloadType: "daemonset"},
-		                      lvmUnitMetrics{Namespace: *testNamespace, Name: "topolvm-node", WorkloadType: "daemonset"},
-		                      lvmUnitMetrics{Namespace: *testNamespace, Name: "controller-manager", WorkloadType: "deployment"},
-		                      lvmUnitMetrics{Namespace: *testNamespace, Name: "topolvm-controller", WorkloadType: "deployment"}}
+		lvmUnitMetrics{Namespace: *testNamespace, Name: "topolvm-node", WorkloadType: "daemonset"},
+		lvmUnitMetrics{Namespace: *testNamespace, Name: "controller-manager", WorkloadType: "deployment"},
+		lvmUnitMetrics{Namespace: *testNamespace, Name: "topolvm-controller", WorkloadType: "deployment"}}
 	for _, unit := range units {
 		unit.getAllMetrics(start, end)
 		unit.printMetrics(false)
@@ -238,9 +238,9 @@ func creationTest(c *kubernetes.Clientset) (int64, int64) {
 		topolvmNode, _ := c.AppsV1().DaemonSets(*testNamespace).Get(context.TODO(), "topolvm-node", metav1.GetOptions{})
 
 		allRunning = controllerManager.Status.Replicas == controllerManager.Status.AvailableReplicas &&
-			         topolvmController.Status.Replicas == topolvmController.Status.AvailableReplicas &&
-			         vgManager.Status.CurrentNumberScheduled == vgManager.Status.DesiredNumberScheduled &&
-			         topolvmNode.Status.CurrentNumberScheduled == topolvmNode.Status.DesiredNumberScheduled
+			topolvmController.Status.Replicas == topolvmController.Status.AvailableReplicas &&
+			vgManager.Status.CurrentNumberScheduled == vgManager.Status.DesiredNumberScheduled &&
+			topolvmNode.Status.CurrentNumberScheduled == topolvmNode.Status.DesiredNumberScheduled
 		if !allRunning {
 			fmt.Println("Waiting for pods running")
 			time.Sleep(10 * time.Second)
@@ -251,7 +251,7 @@ func creationTest(c *kubernetes.Clientset) (int64, int64) {
 			}
 		}
 	}
-	tsEndTest :=  time.Now().Unix()
+	tsEndTest := time.Now().Unix()
 
 	fmt.Println("Times report")
 	fmt.Println(strings.Repeat("-", 80))
@@ -260,7 +260,7 @@ func creationTest(c *kubernetes.Clientset) (int64, int64) {
 
 	return tsStartTest, tsEndTest
 }
-func usageTest (c *kubernetes.Clientset) (int64, int64) {
+func usageTest(c *kubernetes.Clientset) (int64, int64) {
 	tsStartTest := time.Now().Unix()
 	// Create PVCs
 	fmt.Printf("%d PVCs created\n", createPVC(c, *namePattern, *numberInstances))
@@ -287,13 +287,13 @@ func usageTest (c *kubernetes.Clientset) (int64, int64) {
 	} else {
 		fmt.Printf("test PVCs deleted\n")
 	}
-	tries:=0
+	tries := 0
 	waitInterval := 10 * time.Second
 	for notDeleted := true; notDeleted; notDeleted = !pvcsDeleted(c) {
 		fmt.Printf("Waiting for PVCS clean \n")
 		time.Sleep(waitInterval)
 		tries++
-		if tries==20 {
+		if tries == 20 {
 			fmt.Printf("Timeout (%d seconds)waiting for PVCS cleaning", waitInterval)
 			break
 		}
@@ -363,21 +363,21 @@ func createPods(c *kubernetes.Clientset, PodName string, PVCsNumber int) int {
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
 					v1.Container{
-						Name: "busybox",
-						Image: "busybox",
+						Name:    "busybox",
+						Image:   "busybox",
 						Command: []string{"tail", "-f", "/dev/null"},
 						VolumeMounts: []v1.VolumeMount{
 							v1.VolumeMount{
-								Name: "data",
+								Name:      "data",
 								MountPath: "/data"}},
-				}},
+					}},
 				Volumes: []v1.Volume{v1.Volume{
-										Name: "data",
-										VolumeSource: v1.VolumeSource{
-												PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-												ClaimName: fmt.Sprintf("%s-%d", PodName, i),
-											},
-										}}},
+					Name: "data",
+					VolumeSource: v1.VolumeSource{
+						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+							ClaimName: fmt.Sprintf("%s-%d", PodName, i),
+						},
+					}}},
 			},
 		}
 		_, err := c.CoreV1().Pods(*testNamespace).Create(context.TODO(), &pod, metav1.CreateOptions{})
@@ -493,11 +493,11 @@ func (unit lvmUnitMetrics) getValues(metrics string) (float64, float64) {
 	}
 	type resultData struct {
 		ResultType string
-		Result []series
+		Result     []series
 	}
 	type metricsData struct {
 		Status string
-		Data resultData
+		Data   resultData
 	}
 	var d metricsData
 	var max float64 = 0
@@ -505,7 +505,7 @@ func (unit lvmUnitMetrics) getValues(metrics string) (float64, float64) {
 	var n float64 = 0
 	json.Unmarshal([]byte(metrics), &d)
 	values := d.Data.Result[0].Values
-	for i:=0; i < len(values); i++ {
+	for i := 0; i < len(values); i++ {
 		v, err := strconv.ParseFloat(fmt.Sprintf("%s", values[i][1]), 64)
 		if err != nil {
 			fmt.Println("error converting ", values[i][1], " to number")
@@ -546,7 +546,7 @@ func (unit lvmUnitMetrics) getMetrics(start int64, end int64, query string) stri
 	if err != nil {
 		fmt.Printf("Error querying Prometheus: %s", err)
 	}
-	req.Header.Set("Authorization",  fmt.Sprintf("Bearer %s", *token))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", *token))
 
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
@@ -563,7 +563,7 @@ func (unit lvmUnitMetrics) getMetrics(start int64, end int64, query string) stri
 		return ""
 	}
 	data, err := ioutil.ReadAll(resp.Body)
-	if err !=nil {
+	if err != nil {
 		fmt.Println("Error reading response from ", req.URL, ":", err)
 	}
 
@@ -594,16 +594,16 @@ func (unit *lvmUnitMetrics) getRAMMetrics(start int64, end int64) {
 	query := unit.renderTemplate(memQueryTemplate)
 	metrics := unit.getMetrics(start, end, query)
 	max, avg := unit.getValues(metrics)
-	unit.ram.Max= max/Mebibyte
-	unit.ram.Avg = avg/Mebibyte
+	unit.ram.Max = max / Mebibyte
+	unit.ram.Avg = avg / Mebibyte
 }
 
 func (unit *lvmUnitMetrics) getFSMetrics(start int64, end int64) {
 	query := unit.renderTemplate(filesystemTemplate)
 	metrics := unit.getMetrics(start, end, query)
 	max, avg := unit.getValues(metrics)
-	unit.fs.Max = max/Mebibyte
-	unit.fs.Avg = avg/Mebibyte
+	unit.fs.Max = max / Mebibyte
+	unit.fs.Avg = avg / Mebibyte
 }
 
 func (unit *lvmUnitMetrics) getAllMetrics(start int64, end int64) {
