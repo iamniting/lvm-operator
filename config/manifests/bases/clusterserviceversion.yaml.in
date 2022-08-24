@@ -75,4 +75,23 @@ spec:
   maturity: alpha
   provider:
     name: Red Hat
+  relatedImages:
+  - image: odf-lvm-operator
+    name: odf-lvm-operator
+  - image: topolvm-csi
+    name: topolvm-csi
+  - image: topolvm-csi-registrar
+    name: topolvm-csi-registrar
+  - image: topolvm-csi-livenessprobe
+    name: topolvm-csi-livenessprobe
+  - image: topolvm-csi-resizer
+    name: topolvm-csi-resizer
+  - image: topolvm-csi-provisioner
+    name: topolvm-csi-provisioner
+  - image: topolvm-csi-snapshotter
+    name: topolvm-csi-snapshotter
+  - image: rbac-proxy
+    name: rbac-proxy
+  - image: odf-lvm-must-gather
+    name: odf-lvm-must-gather
   version: 0.0.0

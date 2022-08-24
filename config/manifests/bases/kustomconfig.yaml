@@ -1,0 +1,3 @@
+images:
+- path: spec/relatedImages[]/image
+  kind: ClusterServiceVersion

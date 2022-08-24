@@ -240,6 +240,17 @@ bundle: update-mgr-env manifests kustomize operator-sdk rename-csv build-prometh
 	cd config/default && $(KUSTOMIZE) edit set namespace $(OPERATOR_NAMESPACE)
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG} && $(KUSTOMIZE) edit set nameprefix ${MANAGER_NAME_PREFIX}
 	cd config/default && $(KUSTOMIZE) edit set image rbac-proxy=$(RBAC_PROXY_IMG)
+	cd config/manifests/bases && \
+		$(KUSTOMIZE) edit add resource $(BUNDLE_PACKAGE).clusterserviceversion.yaml && \
+		$(KUSTOMIZE) edit set image odf-lvm-operator=$(IMG) && \
+		$(KUSTOMIZE) edit set image topolvm-csi=$(TOPOLVM_CSI_IMAGE) && \
+		$(KUSTOMIZE) edit set image topolvm-csi-registrar=$(CSI_REGISTRAR_IMAGE) && \
+		$(KUSTOMIZE) edit set image topolvm-csi-livenessprobe=$(CSI_LIVENESSPROBE_IMAGE) && \
+		$(KUSTOMIZE) edit set image topolvm-csi-resizer=$(CSI_RESIZER_IMAGE) && \
+		$(KUSTOMIZE) edit set image topolvm-csi-provisioner=$(CSI_PROVISIONER_IMAGE) && \
+		$(KUSTOMIZE) edit set image topolvm-csi-snapshotter=$(CSI_SNAPSHOTTER_IMAGE) && \
+		$(KUSTOMIZE) edit set image rbac-proxy=$(RBAC_PROXY_IMG) && \
+		$(KUSTOMIZE) edit set image odf-lvm-must-gather=$(MUST_GATHER_FULL_IMAGE_NAME)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle -q --package $(BUNDLE_PACKAGE) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
