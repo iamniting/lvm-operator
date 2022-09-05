@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -24,7 +26,7 @@ import (
 )
 
 // log is for logging in this package.
-var lvmclusterlog = logf.Log.WithName("lvmcluster-resource")
+var lvmclusterlog = logf.Log.WithName("lvmcluster-webhook")
 
 func (r *LVMCluster) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -62,7 +64,48 @@ func (r *LVMCluster) ValidateCreate() error {
 func (r *LVMCluster) ValidateUpdate(old runtime.Object) error {
 	lvmclusterlog.Info("validate update", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object update.
+	oldLVMCluster, ok := old.(*LVMCluster)
+	if !ok {
+		return fmt.Errorf("Failed to parse LVMCluster.")
+	}
+
+	for _, deviceClass := range r.Spec.Storage.DeviceClasses {
+		var newDevices, oldDevices []string
+
+		if deviceClass.DeviceSelector != nil {
+			newDevices = deviceClass.DeviceSelector.Paths
+		}
+
+		oldDevices = oldLVMCluster.GetPathsOfDeviceClass(deviceClass.Name)
+
+		// if devices are removed now
+		if len(oldDevices) > len(newDevices) {
+			return fmt.Errorf("Invalid:devices can not be removed from the LVMCluster once added.")
+		}
+
+		// if devices are added now
+		if len(oldDevices) == 0 && len(newDevices) > 0 {
+			return fmt.Errorf("Invalid:devices can not be added in the LVMCluster once created without devices.")
+		}
+
+		deviceMap := make(map[string]bool)
+
+		for _, device := range oldDevices {
+			deviceMap[device] = true
+		}
+
+		for _, device := range newDevices {
+			delete(deviceMap, device)
+		}
+
+		// if any old device is removed now
+		if len(deviceMap) != 0 {
+			return fmt.Errorf("Invalid:some of devices are deleted from the LVMCluster. "+
+				"Device can not be removed from the LVMCluster once added. "+
+				"oldDevices:%s, newDevices:%s", oldDevices, newDevices)
+		}
+	}
+
 	return nil
 }
 
@@ -72,4 +115,18 @@ func (r *LVMCluster) ValidateDelete() error {
 
 	// TODO(user): fill in your validation logic upon object deletion.
 	return nil
+}
+
+func (r *LVMCluster) GetPathsOfDeviceClass(deviceClassName string) []string {
+
+	for _, deviceClass := range r.Spec.Storage.DeviceClasses {
+		if deviceClass.Name == deviceClassName {
+			if deviceClass.DeviceSelector != nil {
+				return deviceClass.DeviceSelector.Paths
+			}
+			return []string{}
+		}
+	}
+
+	return []string{}
 }
